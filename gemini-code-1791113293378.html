@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PPD-016 Site Defect Inspector</title>
+  <!-- Load Excel library (SheetJS) and ExcelJS for binary handling -->
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 16px; background: #f5f5f7; color: #333; }
+    .card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    h2, h3 { margin-top: 0; color: #0056b3; }
+    label { font-weight: bold; display: block; margin-top: 10px; font-size: 0.9em; }
+    input, textarea, button { width: 100%; padding: 12px; margin-top: 6px; border-radius: 8px; border: 1px solid #ccc; box-sizing: border-box; font-size: 16px; }
+    button { background: #007aff; color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 12px; }
+    button:active { background: #0056b3; }
+    .btn-export { background: #28a745; margin-top: 20px; }
+    .defect-item { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; align-items: center; gap: 12px; }
+    .defect-item img { width: 60px; height: 60px; object-fit: cover; border-radius: 6px; }
+    #previewImg { max-width: 100%; max-height: 200px; border-radius: 8px; margin-top: 10px; display: none; }
+  </style>
+</head>
+<body>
+
+  <h2>HK Defect Inspector (PPD-016)</h2>
+
+  <!-- Section 1: Header Metadata -->
+  <div class="card">
+    <h3>1. Site Information</h3>
+    <label>Project Name</label>
+    <input type="text" id="projectName" value="LOHAS P12" />
+
+    <label>Form Reference No.</label>
+    <input type="text" id="formRef" value="P12 - 001" />
+
+    <label>Location (Tower/Floor/Unit)</label>
+    <input type="text" id="location" value="Tower 1A 56D" />
+
+    <label>Checked by (PPD Inspector)</label>
+    <input type="text" id="inspector" value="Brian Lau" />
+  </div>
+
+  <!-- Section 2: Defect Capture -->
+  <div class="card">
+    <h3>2. Add Defect</h3>
+    <label>Capture / Choose Photo</label>
+    <!-- capture="environment" automatically opens back camera on mobile devices -->
+    <input type="file" id="photoInput" accept="image/*" capture="environment" onchange="previewPhoto(event)" />
+    <img id="previewImg" src="" alt="Preview" />
+
+    <label>Defect Description</label>
+    <textarea id="defectDesc" rows="3" placeholder="Describe the defect..."></textarea>
+
+    <button type="button" onclick="addDefect()">Add Defect to List</button>
+  </div>
+
+  <!-- Section 3: Defect List & Export -->
+  <div class="card">
+    <h3>3. Defects Logged (<span id="defectCount">0</span>)</h3>
+    <div id="defectList"></div>
+
+    <button type="button" class="btn-export" onclick="exportReport()">Generate & Export PPD-016 Excel</button>
+  </div>
+
+  <script>
+    let defects = [];
+    let currentBase64Image = null;
+
+    function previewPhoto(event) {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          currentBase64Image = e.target.result;
+          const img = document.getElementById('previewImg');
+          img.src = currentBase64Image;
+          img.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+
+    function addDefect() {
+      const desc = document.getElementById('defectDesc').value.trim();
+      if (!currentBase64Image || !desc) {
+        alert('Please take a photo and provide a description.');
+        return;
+      }
+
+      defects.push({ image: currentBase64Image, desc: desc });
+
+      // Reset input fields
+      document.getElementById('defectDesc').value = '';
+      document.getElementById('photoInput').value = '';
+      document.getElementById('previewImg').style.display = 'none';
+      currentBase64Image = null;
+
+      renderDefects();
+    }
+
+    function renderDefects() {
+      const container = document.getElementById('defectList');
+      const countEl = document.getElementById('defectCount');
+      countEl.innerText = defects.length;
+      container.innerHTML = '';
+
+      defects.forEach((item, index) => {
+        container.innerHTML += `
+          <div class="defect-item">
+            <img src="${item.image}" />
+            <div>
+              <strong>Slot #${index + 1}</strong>
+              <p style="margin: 4px 0 0 0; font-size: 0.9em;">${item.desc}</p>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    async function exportReport() {
+      if (defects.length === 0) {
+        alert('Please log at least one defect.');
+        return;
+      }
+
+      try {
+        // Fetch standard template PPD-016.xlsx from assets folder
+        const response = await fetch('assets/PPD-016.xlsx');
+        const arrayBuffer = await response.arrayBuffer();
+
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(arrayBuffer);
+
+        const sheet = workbook.getWorksheet('Blank Form');
+
+        // Populate Metadata Cells
+        sheet.getCell('F3').value = document.getElementById('projectName').value;
+        sheet.getCell('F5').value = document.getElementById('formRef').value;
+        sheet.getCell('F7').value = document.getElementById('location').value;
+        sheet.getCell('D9').value = new Date().toISOString().split('T')[0];
+        sheet.getCell('D11').value = document.getElementById('inspector').value;
+
+        // Cell mapping for descriptions and photo anchor positions
+        const descCells = ['B25', 'B38', 'B51'];
+        const photoTL = [{ row: 13, col: 1 }, { row: 26, col: 1 }, { row: 39, col: 1 }]; // B14, B27, B40 (0-indexed)
+
+        for (let i = 0; i < defects.length && i < 3; i++) {
+          // Write description
+          sheet.getCell(descCells[i]).value = defects[i].desc;
+
+          // Embed photo directly into Excel template sheet
+          const imageId = workbook.addImage({
+            base64: defects[i].image,
+            extension: 'png',
+          });
+
+          sheet.addImage(imageId, {
+            tl: photoTL[i],
+            ext: { width: 320, height: 220 }
+          });
+        }
+
+        // Export generated file
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `PPD-016_Inspection_${Date.now()}.xlsx`;
+        link.click();
+
+      } catch (err) {
+        alert('Error building Excel report: ' + err.message);
+      }
+    }
+  </script>
+</body>
+</html>
